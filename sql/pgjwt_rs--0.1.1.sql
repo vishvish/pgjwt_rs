@@ -1,4 +1,4 @@
--- pgjwt_rs--0.1.0.sql
+-- pgjwt_rs--0.1.1.sql
 -- PostgreSQL extension for JWT verification with RS256 and Ed25519 support
 
 -- complain if script is sourced in psql, rather than via CREATE EXTENSION
