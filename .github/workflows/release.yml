@@ -56,18 +56,32 @@ jobs:
       - name: Run unit tests (pg16)
         run: cargo test --no-default-features --features pg16 --verbose
         env:
+          PG_CONFIG: ${{ matrix.pg_config_path }}
           PGX_PG_CONFIG_PATH: ${{ matrix.pg_config_path }}
 
       - name: Build release library (pg16)
-        run: cargo build --release --features pg16 --no-default-features
+        run: |
+          # Set library path for macOS linker
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            PG_LIB_DIR=$("${{ matrix.pg_config_path }}" --libdir)
+            export DYLD_FALLBACK_LIBRARY_PATH="${PG_LIB_DIR}:${DYLD_FALLBACK_LIBRARY_PATH}"
+          fi
+          cargo build --release --features pg16 --no-default-features
         env:
+          PG_CONFIG: ${{ matrix.pg_config_path }}
           PGX_PG_CONFIG_PATH: ${{ matrix.pg_config_path }}
 
       - name: Package extension files (pg16)
         run: |
+          # Set library path for macOS linker
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            PG_LIB_DIR=$("${{ matrix.pg_config_path }}" --libdir)
+            export DYLD_FALLBACK_LIBRARY_PATH="${PG_LIB_DIR}:${DYLD_FALLBACK_LIBRARY_PATH}"
+          fi
           chmod +x package.sh
           PG_FEATURE=pg16 ./package.sh
         env:
+          PG_CONFIG: ${{ matrix.pg_config_path }}
           PGX_PG_CONFIG_PATH: ${{ matrix.pg_config_path }}
 
       - name: Create tarball
