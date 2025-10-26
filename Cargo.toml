@@ -1,6 +1,6 @@
 [package]
 name = "pgjwt_rs"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Vish Vishvanath <coder@vishvish.com>"]
 description = "PostgreSQL extension for JWT verification with RS256 and Ed25519 support"

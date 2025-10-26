@@ -4,7 +4,7 @@
 set -e
 
 EXTENSION_NAME="pgjwt_rs"
-VERSION="0.1.0"
+VERSION="0.1.1"
 
 OS=$(uname -s)
 LIB_EXT="so"
