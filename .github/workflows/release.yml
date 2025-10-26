@@ -8,9 +8,23 @@ on:
 
 jobs:
   build-and-release:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     permissions:
       contents: write
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x86_64
+            pg_install: |
+              sudo apt-get update
+              sudo apt-get install -y postgresql-16 postgresql-server-dev-16
+            pg_config_path: /usr/lib/postgresql/16/bin/pg_config
+          - os: macos-latest
+            platform: macos-arm64
+            pg_install: |
+              brew install postgresql@16
+            pg_config_path: /opt/homebrew/opt/postgresql@16/bin/pg_config
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -19,14 +33,12 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install PostgreSQL dev headers (pg16)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-16 postgresql-server-dev-16
+        run: ${{ matrix.pg_install }}
 
       - name: Install cargo-pgrx (0.16.1) and init
         run: |
           cargo install --locked cargo-pgrx --version 0.16.1
-          cargo pgrx init --pg16 /usr/lib/postgresql/16/bin/pg_config
+          cargo pgrx init --pg16 ${{ matrix.pg_config_path }}
 
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
@@ -57,11 +69,12 @@ jobs:
         shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          TARBALL="pgjwt_rs-${VERSION}-pg16-linux-x86_64.tar.gz"
+          TARBALL="pgjwt_rs-${VERSION}-pg16-${{ matrix.platform }}.tar.gz"
           tar -czf "$TARBALL" -C pkg .
           echo "tarball=$TARBALL" >> $GITHUB_OUTPUT
 
       - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.pack.outputs.tarball }}
