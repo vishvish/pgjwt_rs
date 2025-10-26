@@ -1,0 +1,22 @@
+# Ignore Rust build artifacts
+target/
+Cargo.lock
+
+# Ignore pgrx test artifacts
+.pgrx/
+
+# Ignore macOS files
+.DS_Store
+
+# Ignore editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Ignore test databases
+testdb/
+pkg
+*.pem
+lcov.info
