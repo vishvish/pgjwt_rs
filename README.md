@@ -1,5 +1,7 @@
 # pgjwt_rs
 
+[![CI](https://github.com/vishvish/pgjwt_rs/actions/workflows/tests.yml/badge.svg)](https://github.com/vishvish/pgjwt_rs/actions/workflows/tests.yml)
+
 PostgreSQL extension for JWT verification with RS256 and Ed25519 support.
 
 ## Overview
@@ -97,6 +99,16 @@ sudo cp pkg/usr/share/postgresql/extension/* $(pg_config --sharedir)/extension/
 ```
 
 On macOS, the library extension will be `.dylib` instead of `.so`.
+
+### Cutting a Release
+
+This repository publishes release artifacts when you push a version tag. Steps:
+
+1. Bump the version in `Cargo.toml`.
+2. Commit and push.
+3. Create and push a tag matching the version, e.g. `v0.1.0`.
+
+The CI release workflow will build the extension and attach a tarball to the GitHub Release.
 
 ### Enable in Database
 

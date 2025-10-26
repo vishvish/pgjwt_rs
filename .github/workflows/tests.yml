@@ -1,0 +1,65 @@
+name: pgjwt_rs CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+concurrency:
+  group: pgjwt_rs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Unit tests (Rust)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install PostgreSQL dev headers (pg16)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-16 postgresql-server-dev-16
+
+      - name: Install cargo-pgrx (0.16.1) and init
+        run: |
+          cargo install --locked cargo-pgrx --version 0.16.1
+          cargo pgrx init --pg16 /usr/lib/postgresql/16/bin/pg_config
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Generate test keys (RSA + Ed25519)
+        run: |
+          openssl version
+          # RSA keys for RS256 tests
+          openssl genrsa -out test_private.pem 2048
+          openssl rsa -in test_private.pem -pubout -out test_public.pem
+          # Ed25519 keys for EdDSA tests
+          openssl genpkey -algorithm ed25519 -out test_ed25519_private.pem
+          openssl pkey -in test_ed25519_private.pem -pubout -out test_ed25519_public.pem
+
+      - name: Run tests (pg16)
+        run: cargo test --no-default-features --features pg16 --verbose
+
+  # Uncomment to add pgrx integration tests once a matching PostgreSQL version is available on the runner
+  # pgrx:
+  #   name: pgrx integration tests (pg18)
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: dtolnay/rust-toolchain@stable
+  #     - uses: Swatinem/rust-cache@v2
+  #     - name: Install cargo-pgrx
+  #       run: cargo install --locked cargo-pgrx --version 0.16.1
+  #     - name: Install PostgreSQL 18 (or set PG_CONFIG)
+  #       run: |
+  #         echo "PostgreSQL 18 is not available on ubuntu-latest by default. Configure pg_config and cargo pgrx init here."
+  #     - name: cargo pgrx init
+  #       run: cargo pgrx init
+  #     - name: Run pgrx tests
+  #       run: cargo pgrx test pg18

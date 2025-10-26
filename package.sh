@@ -12,8 +12,18 @@ if [[ "$OS" == "Darwin" ]]; then
   LIB_EXT="dylib"
 fi
 
-echo "Building ${EXTENSION_NAME} extension..."
-cargo build --release --features pg18 --no-default-features
+# Select Postgres version feature to build against (pg13..pg18)
+PG_FEATURE_INPUT="$1"
+PG_FEATURE_ENV="${PG_FEATURE:-}"
+PG_FEATURE="${PG_FEATURE_INPUT:-${PG_FEATURE_ENV:-pg18}}"
+
+case "$PG_FEATURE" in
+  pg13|pg14|pg15|pg16|pg17|pg18) ;;
+  *) echo "Error: invalid PG_FEATURE '$PG_FEATURE'. Use one of: pg13 pg14 pg15 pg16 pg17 pg18"; exit 1;;
+esac
+
+echo "Building ${EXTENSION_NAME} extension for feature '$PG_FEATURE'..."
+cargo build --release --features "$PG_FEATURE" --no-default-features
 
 echo "Creating package directory..."
 rm -rf pkg
