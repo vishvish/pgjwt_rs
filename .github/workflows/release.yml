@@ -14,31 +14,242 @@ jobs:
     strategy:
       matrix:
         include:
+          # Linux x86_64
           - os: ubuntu-latest
             platform: linux-x86_64
+            target: x86_64-unknown-linux-gnu
             pg_install: |
               sudo apt-get update
               sudo apt-get install -y postgresql-16 postgresql-server-dev-16
             pg_config_path: /usr/lib/postgresql/16/bin/pg_config
+            cross: false
+          # Linux arm64 (Raspberry Pi 64-bit)
+          - os: ubuntu-latest
+            platform: linux-arm64
+            target: aarch64-unknown-linux-gnu
+            pg_install: |
+              sudo apt-get update
+              sudo apt-get install -y qemu-user-static binfmt-support
+              sudo apt-get install -y postgresql-16 postgresql-server-dev-16
+            pg_config_path: /usr/lib/postgresql/16/bin/pg_config
+            cross: true
+          # Linux armv7 (Raspberry Pi 32-bit)
+          - os: ubuntu-latest
+            platform: linux-armv7
+            target: armv7-unknown-linux-gnueabihf
+            pg_install: |
+              sudo apt-get update
+              sudo apt-get install -y qemu-user-static binfmt-support
+              sudo apt-get install -y postgresql-16 postgresql-server-dev-16
+            pg_config_path: /usr/lib/postgresql/16/bin/pg_config
+            cross: true
+          # macOS arm64
           - os: macos-latest
             platform: macos-arm64
+            target: aarch64-apple-darwin
             pg_install: |
               brew install postgresql@16
             pg_config_path: /opt/homebrew/opt/postgresql@16/bin/pg_config
+            cross: false
+          # macOS x86_64
+          - os: macos-latest
+            platform: macos-x86_64
+            target: x86_64-apple-darwin
+            pg_install: |
+              arch -x86_64 /usr/local/bin/brew install postgresql@16 || true
+            pg_config_path: /usr/local/opt/postgresql@16/bin/pg_config
+            cross: false
+          # Windows x86_64
+          - os: windows-latest
+            platform: windows-x86_64
+            target: x86_64-pc-windows-msvc
+            pg_install: |
+              choco install postgresql --version=16.0
+            pg_config_path: C:/Program Files/PostgreSQL/16/bin/pg_config.exe
+            cross: false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Print build environment info
+        env:
+          TARGET: ${{ matrix.target }}
+          PG_CONFIG_PATH: ${{ matrix.pg_config_path }}
+        run: |
+          echo "uname -m: $(uname -m)"
+          echo "Rust target: $TARGET"
+          echo "pg_config: $PG_CONFIG_PATH"
+          if [ -x "$PG_CONFIG_PATH" ]; then
+            "$PG_CONFIG_PATH" --version
+            "$PG_CONFIG_PATH" --libdir
+          fi
+        shell: bash
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - name: Install PostgreSQL dev headers (pg16)
-        run: ${{ matrix.pg_install }}
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          CROSS: ${{ matrix.cross }}
+        run: |
+          echo "Runner OS: $RUNNER_OS"
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            echo "macOS detected. Platform: $PLATFORM"
+            BREW=""
+            if [ -x "/opt/homebrew/bin/brew" ]; then BREW=/opt/homebrew/bin/brew; fi
+            if [ -z "$BREW" ] && [ -x "/usr/local/bin/brew" ]; then BREW=/usr/local/bin/brew; fi
+            if [ -z "$BREW" ]; then BREW=$(command -v brew || true); fi
+            echo "Using brew: $BREW"
+            if [ -z "$BREW" ]; then
+              echo "Homebrew not found. Please ensure Homebrew is available on macOS runner."
+              exit 1
+            fi
+            if [[ "$PLATFORM" == "macos-x86_64" ]]; then
+              echo "Installing postgresql@16 via x86_64 Homebrew"
+              arch -x86_64 "$BREW" install postgresql@16 || true
+            else
+              echo "Installing postgresql@16 via native Homebrew"
+              "$BREW" install postgresql@16 || true
+            fi
+            echo "brew --prefix postgresql@16: $($BREW --prefix postgresql@16 2>/dev/null || true)"
+            echo "brew list postgresql@16 (if installed):"
+            "$BREW" list postgresql@16 || true
+          elif [[ "$RUNNER_OS" == "Linux" ]]; then
+            echo "Linux detected. Installing via apt"
+            sudo apt-get update
+            if [[ "$CROSS" == 'true' ]]; then
+              sudo apt-get install -y qemu-user-static binfmt-support || true
+            fi
+            sudo apt-get install -y postgresql-16 postgresql-server-dev-16 || true
+          elif [[ "$RUNNER_OS" == "Windows" ]]; then
+            echo "Windows detected. Installing via Chocolatey"
+            pwsh -Command "choco install postgresql --version=16.0 -y" || true
+          else
+            echo "Unsupported runner OS: $RUNNER_OS"
+            exit 1
+          fi
+        shell: bash
+
+      - id: find_pg_unix
+        name: Check pg_config and Postgres libs (Unix)
+        if: runner.os != 'Windows'
+        env:
+          PG_CONFIG_PATH: ${{ matrix.pg_config_path }}
+        run: |
+          echo "Initial PG_CONFIG_PATH=$PG_CONFIG_PATH"
+          echo "uname -m: $(uname -m)"
+          echo "which brew: $(command -v brew || true)"
+          candidates=(
+            "$PG_CONFIG_PATH"
+            "$(command -v pg_config 2>/dev/null)"
+            "/opt/homebrew/opt/postgresql@16/bin/pg_config"
+            "/usr/local/opt/postgresql@16/bin/pg_config"
+            "/usr/local/bin/pg_config"
+            "/usr/bin/pg_config"
+          )
+          found=""
+          for p in "${candidates[@]}"; do
+            if [ -n "$p" ] && [ -x "$p" ]; then
+              found="$p"
+              break
+            fi
+          done
+
+          # If not found, try Homebrew --prefix lookups for postgresql@16
+          if [ -z "$found" ]; then
+            for brew_cmd in "/opt/homebrew/bin/brew" "/usr/local/bin/brew" "$(command -v brew 2>/dev/null)"; do
+              if [ -x "$brew_cmd" ]; then
+                echo "Trying brew at: $brew_cmd"
+                prefix=$($brew_cmd --prefix postgresql@16 2>/dev/null || true)
+                if [ -n "$prefix" ]; then
+                  candidate="$prefix/bin/pg_config"
+                  echo "brew prefix candidate: $candidate"
+                  if [ -x "$candidate" ]; then
+                    found="$candidate"
+                    break
+                  fi
+                fi
+              fi
+            done
+          fi
+
+          if [ -z "$found" ]; then
+            echo "pg_config not found in candidates: ${candidates[*]}"
+            exit 1
+          fi
+
+          echo "Found pg_config: $found"
+          echo "pg_config_path=$found" >> $GITHUB_OUTPUT
+          "$found" --version || true
+          LIBDIR=$("$found" --libdir)
+          echo "pg libdir: $LIBDIR"
+          ls -la "$LIBDIR" || true
+          echo "file output for libs:"
+          file "$LIBDIR"/* || true
+          echo "Architecture of pg_config binary:"
+          file "$found" || true
+        shell: bash
+
+      - id: find_pg_win
+        name: Check pg_config and Postgres libs (Windows)
+        if: runner.os == 'Windows'
+        env:
+          PG_CONFIG_PATH: ${{ matrix.pg_config_path }}
+        shell: pwsh
+        run: |
+          Write-Host "Initial PG_CONFIG_PATH=$env:PG_CONFIG_PATH"
+          $candidates = @(
+            $env:PG_CONFIG_PATH,
+            (Get-Command pg_config -ErrorAction SilentlyContinue).Source,
+            'C:/Program Files/PostgreSQL/16/bin/pg_config.exe'
+          )
+          $found = $null
+          foreach ($p in $candidates) {
+            if ($p -and (Test-Path $p)) { $found = $p; break }
+          }
+          if (-not $found) {
+            Write-Error "pg_config not found in candidates"
+            exit 1
+          }
+          Write-Host "Found pg_config: $found"
+          $libdir = & $found --libdir
+          Write-Host "pg libdir: $libdir"
+          Get-ChildItem -Path $libdir -File | ForEach-Object { Write-Host $_.FullName }
+          Write-Output "pg_config_path=$found" >> $env:GITHUB_OUTPUT
+
+      - name: Set detected pg_config (Unix)
+        id: set_pg_unix
+        if: runner.os != 'Windows'
+        env:
+          FROM_FIND: ${{ steps.find_pg_unix.outputs.pg_config_path }}
+          FALLBACK: ${{ matrix.pg_config_path }}
+        run: |
+          CHOSEN="${FROM_FIND:-${FALLBACK}}"
+          echo "Chosen pg_config: $CHOSEN"
+          echo "pg_config_path=$CHOSEN" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Set detected pg_config (Windows)
+        id: set_pg_win
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          FROM_FIND: ${{ steps.find_pg_win.outputs.pg_config_path }}
+          FALLBACK: ${{ matrix.pg_config_path }}
+        run: |
+          $chosen = if ($env:FROM_FIND) { $env:FROM_FIND } else { $env:FALLBACK }
+          Write-Host "Chosen pg_config: $chosen"
+          Write-Output "pg_config_path=$chosen" >> $env:GITHUB_OUTPUT
 
       - name: Install cargo-pgrx (0.16.1) and init
+        env:
+          PG_CONFIG_PATH: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
         run: |
           cargo install --locked cargo-pgrx --version 0.16.1
-          cargo pgrx init --pg16 ${{ matrix.pg_config_path }}
+          cargo pgrx init --pg16 "$PG_CONFIG_PATH"
 
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
@@ -53,43 +264,75 @@ jobs:
           openssl genpkey -algorithm ed25519 -out test_ed25519_private.pem
           openssl pkey -in test_ed25519_private.pem -pubout -out test_ed25519_public.pem
 
+
       - name: Run unit tests (pg16)
-        run: cargo test --no-default-features --features pg16 --verbose
+        if: ${{ !matrix.cross }}
         env:
-          PG_CONFIG: ${{ matrix.pg_config_path }}
-          PGX_PG_CONFIG_PATH: ${{ matrix.pg_config_path }}
+          TARGET: ${{ matrix.target }}
+          PG_CONFIG: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
+          PGX_PG_CONFIG_PATH: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
+        run: cargo test --no-default-features --features pg16 --verbose --target $TARGET
+
+      - name: Run unit tests (pg16, cross)
+        if: ${{ matrix.cross }}
+        env:
+          TARGET: ${{ matrix.target }}
+          PG_CONFIG: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
+          PGX_PG_CONFIG_PATH: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
+        run: |
+          cargo install cross --git https://github.com/cross-rs/cross
+          cross test --no-default-features --features pg16 --target $TARGET --verbose
+
 
       - name: Build release library (pg16)
+        if: ${{ !matrix.cross }}
+        env:
+          TARGET: ${{ matrix.target }}
+          PG_CONFIG_PATH: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
+          PG_CONFIG: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
+          PGX_PG_CONFIG_PATH: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
         run: |
           # Set library path for macOS linker
           if [[ "$OSTYPE" == "darwin"* ]]; then
-            PG_LIB_DIR=$("${{ matrix.pg_config_path }}" --libdir)
+            PG_LIB_DIR=$("$PG_CONFIG_PATH" --libdir)
             export DYLD_FALLBACK_LIBRARY_PATH="${PG_LIB_DIR}:${DYLD_FALLBACK_LIBRARY_PATH}"
           fi
-          cargo build --release --features pg16 --no-default-features
+          cargo build --release --features pg16 --no-default-features --target $TARGET
+
+      - name: Build release library (pg16, cross)
+        if: ${{ matrix.cross }}
         env:
-          PG_CONFIG: ${{ matrix.pg_config_path }}
-          PGX_PG_CONFIG_PATH: ${{ matrix.pg_config_path }}
+          TARGET: ${{ matrix.target }}
+          PG_CONFIG: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
+          PGX_PG_CONFIG_PATH: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
+        run: |
+          cargo install cross --git https://github.com/cross-rs/cross
+          cross build --release --features pg16 --no-default-features --target $TARGET
+
 
       - name: Package extension files (pg16)
+        env:
+          PG_CONFIG_PATH: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
+          PG_CONFIG: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
+          PGX_PG_CONFIG_PATH: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
         run: |
           # Set library path for macOS linker
           if [[ "$OSTYPE" == "darwin"* ]]; then
-            PG_LIB_DIR=$("${{ matrix.pg_config_path }}" --libdir)
+            PG_LIB_DIR=$("$PG_CONFIG_PATH" --libdir)
             export DYLD_FALLBACK_LIBRARY_PATH="${PG_LIB_DIR}:${DYLD_FALLBACK_LIBRARY_PATH}"
           fi
           chmod +x package.sh
           PG_FEATURE=pg16 ./package.sh
-        env:
-          PG_CONFIG: ${{ matrix.pg_config_path }}
-          PGX_PG_CONFIG_PATH: ${{ matrix.pg_config_path }}
+
 
       - name: Create tarball
         id: pack
         shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          TARBALL="pgjwt_rs-${VERSION}-pg16-${{ matrix.platform }}.tar.gz"
+          TARBALL="pgjwt_rs-${VERSION}-pg16-${PLATFORM}.tar.gz"
           tar -czf "$TARBALL" -C pkg .
           echo "tarball=$TARBALL" >> $GITHUB_OUTPUT
 
