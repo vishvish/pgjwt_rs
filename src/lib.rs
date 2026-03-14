@@ -9,13 +9,19 @@ pgrx::pg_module_magic!();
 /// Called when the extension is loaded by Postgres
 #[pg_guard]
 extern "C-unwind" fn _PG_init() {
-    pgrx::info!("pgjwt_rs extension loaded - JWT verification with RS256 and Ed25519 support");
+    pgrx::debug1!("pgjwt_rs extension loaded - JWT verification with RS256 and Ed25519 support");
 }
 
-/// Extract JWT payload without verification
-/// This is useful to get the issuer claim to look up the correct public key
+/// Extract JWT payload without verification.
+/// This is useful to get the issuer claim to look up the correct public key.
+/// The returned JSON always contains `"_unverified": true` to signal that the
+/// payload has NOT been signature-verified.
 #[cfg_attr(not(test), pg_extern)]
 fn jwt_decode_payload(token: String) -> JsonB {
+    if token.len() > MAX_TOKEN_BYTES {
+        return JsonB(serde_json::json!({"error": "Token too large"}));
+    }
+
     let parts: Vec<&str> = token.split('.').collect();
     if parts.len() != 3 {
         return JsonB(serde_json::json!({"error": "Invalid JWT format"}));
@@ -24,7 +30,12 @@ fn jwt_decode_payload(token: String) -> JsonB {
     // Decode base64 payload (URL-safe, no padding)
     match BASE64_URL_SAFE_NO_PAD.decode(parts[1]) {
         Ok(bytes) => match serde_json::from_slice::<Value>(&bytes) {
-            Ok(payload) => JsonB(payload),
+            Ok(mut payload) => {
+                if let Some(map) = payload.as_object_mut() {
+                    map.insert("_unverified".into(), serde_json::json!(true));
+                }
+                JsonB(payload)
+            }
             Err(_) => JsonB(serde_json::json!({"error": "Invalid JSON in payload"})),
         },
         Err(_) => JsonB(serde_json::json!({"error": "Invalid base64 encoding"})),
@@ -95,13 +106,40 @@ fn jwt_verify(
     TableIterator::once(result)
 }
 
+/// Maximum accepted token size (16 KiB — generous for any real JWT)
+const MAX_TOKEN_BYTES: usize = 16_384;
+/// Maximum accepted PEM key size (8 KiB — generous for any real key)
+const MAX_KEY_BYTES: usize = 8_192;
+
 /// Internal function to verify JWT tokens
 fn verify_jwt(token: &str, public_key: &str, algorithm: Algorithm) -> (JsonB, JsonB, bool) {
+    if token.len() > MAX_TOKEN_BYTES {
+        return (
+            JsonB(serde_json::json!({"error": "Token too large"})),
+            JsonB(serde_json::json!({})),
+            false,
+        );
+    }
+    if public_key.len() > MAX_KEY_BYTES {
+        return (
+            JsonB(serde_json::json!({"error": "Public key too large"})),
+            JsonB(serde_json::json!({})),
+            false,
+        );
+    }
+
     // Parse header
     let header = match decode_header(token) {
         Ok(h) => {
-            // Build a minimal, infallible JSON representation
-            let alg = format!("{:?}", h.alg);
+            let alg = match h.alg {
+                Algorithm::RS256 => "RS256",
+                Algorithm::EdDSA => "EdDSA",
+                other => return (
+                    JsonB(serde_json::json!({ "alg": format!("{:?}", other), "typ": h.typ.unwrap_or_else(|| "JWT".to_string()) })),
+                    JsonB(serde_json::json!({"error": "Unsupported algorithm in header"})),
+                    false,
+                ),
+            };
             let typ = h.typ.unwrap_or_else(|| "JWT".to_string());
             JsonB(serde_json::json!({ "alg": alg, "typ": typ }))
         }
@@ -190,9 +228,9 @@ mod tests {
         let token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJhdXRoX2d1YXJkIiwic3ViIjoiMTIzNDU2Nzg5MCIsImlhdCI6MTUxNjIzOTAyMn0.signature";
         let result = jwt_decode_payload(token.to_string());
 
-        assert!(result.0.get("iss").is_some());
         assert_eq!(result.0.get("iss").unwrap().as_str(), Some("auth_guard"));
         assert_eq!(result.0.get("sub").unwrap().as_str(), Some("1234567890"));
+        assert_eq!(result.0.get("_unverified").unwrap().as_bool(), Some(true));
     }
 
     #[test]
@@ -336,13 +374,14 @@ mod tests {
         let token = "eyJhbGciOiJIUzI1NiJ9.eyJ0ZXN0IjoidmFsdWUifQ.signature";
 
         // HS256 is not implemented (we only support RS256 and EdDSA)
+        // The header parse now rejects unsupported algorithms early
         let result = verify_jwt(token, "key", Algorithm::HS256);
         let (_header, payload, valid) = result;
 
         assert!(!valid);
-        assert_eq!(
-            payload.0.get("error").unwrap().as_str(),
-            Some("Algorithm not implemented")
+        assert!(
+            payload.0.get("error").unwrap().as_str().unwrap().contains("Unsupported")
+                || payload.0.get("error").unwrap().as_str().unwrap().contains("not implemented")
         );
     }
 

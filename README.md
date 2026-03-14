@@ -82,9 +82,31 @@ SELECT * FROM jwt_verify(
 
 ### Build and Install
 
+There are three supported ways to build + package the extension:
+
+1. **Docker-based build (recommended)** — produces a fully packaged `pkg/` directory without needing local Postgres dev packages.
+2. **Local `package.sh` build** — requires Postgres dev headers installed locally.
+3. **Manual Rust build** — for advanced users who want to run `cargo build` directly.
+
+#### 1) Docker build (recommended)
+
+This repository includes a helper script that builds the extension in a container and extracts the resulting `pkg/` output.
+
+```bash
+# Build and extract artifacts into ./out/pkg
+./build.sh
+
+# If you want to customize the image tag or output directory:
+# ./build.sh mytag my-output-dir
+```
+
+The resulting files will be in `out/pkg/usr/lib/postgresql/` and `out/pkg/usr/share/postgresql/extension/`.
+
+#### 2) Local package.sh build (requires Postgres dev headers)
+
 ```bash
 # Install cargo-pgrx (matching pgrx version)
-cargo install --locked cargo-pgrx --version 0.16.1
+cargo install --locked cargo-pgrx --version 0.17.0
 
 # Initialize pgrx for PostgreSQL 18 (one-time setup)
 cargo pgrx init --pg18 $(which pg_config)
@@ -92,8 +114,11 @@ cargo pgrx init --pg18 $(which pg_config)
 # Build and package the extension
 chmod +x package.sh
 ./package.sh
+```
 
-# Install (as superuser)
+#### 3) Install into a running PostgreSQL instance
+
+```bash
 sudo cp pkg/usr/lib/postgresql/pgjwt_rs.so $(pg_config --pkglibdir)/
 sudo cp pkg/usr/share/postgresql/extension/* $(pg_config --sharedir)/extension/
 ```
