@@ -49,6 +49,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Set PGRX_HOME
+        run: |
+          echo "PGRX_HOME=${GITHUB_WORKSPACE}/.pgrx" >> $GITHUB_ENV
+          mkdir -p "${GITHUB_WORKSPACE}/.pgrx"
+
       - name: Ensure PGRX_HOME exists
         run: |
           mkdir -p "$PGRX_HOME"
