@@ -77,9 +77,19 @@ jobs:
               echo "Installing postgresql@16 via native Homebrew"
               "$BREW" install postgresql@16 || true
             fi
+
+            # Fallback: some runners only provide `postgresql` (not @16)
+            if ! command -v pg_config >/dev/null 2>&1; then
+              echo "pg_config not found after postgresql@16 install; attempting postgresql install"
+              "$BREW" install postgresql || true
+            fi
+
             echo "brew --prefix postgresql@16: $($BREW --prefix postgresql@16 2>/dev/null || true)"
+            echo "brew --prefix postgresql: $($BREW --prefix postgresql 2>/dev/null || true)"
             echo "brew list postgresql@16 (if installed):"
             "$BREW" list postgresql@16 || true
+            echo "brew list postgresql (if installed):"
+            "$BREW" list postgresql || true
           elif [[ "$RUNNER_OS" == "Linux" ]]; then
             echo "Linux detected. Installing via apt"
             sudo apt-get update
@@ -110,6 +120,8 @@ jobs:
             "$(command -v pg_config 2>/dev/null)"
             "/opt/homebrew/opt/postgresql@16/bin/pg_config"
             "/usr/local/opt/postgresql@16/bin/pg_config"
+            "/opt/homebrew/opt/postgresql/bin/pg_config"
+            "/usr/local/opt/postgresql/bin/pg_config"
             "/usr/local/bin/pg_config"
             "/usr/bin/pg_config"
           )
@@ -126,15 +138,17 @@ jobs:
             for brew_cmd in "/opt/homebrew/bin/brew" "/usr/local/bin/brew" "$(command -v brew 2>/dev/null)"; do
               if [ -x "$brew_cmd" ]; then
                 echo "Trying brew at: $brew_cmd"
-                prefix=$($brew_cmd --prefix postgresql@16 2>/dev/null || true)
-                if [ -n "$prefix" ]; then
-                  candidate="$prefix/bin/pg_config"
-                  echo "brew prefix candidate: $candidate"
-                  if [ -x "$candidate" ]; then
-                    found="$candidate"
-                    break
+                for formula in postgresql@16 postgresql; do
+                  prefix=$($brew_cmd --prefix "$formula" 2>/dev/null || true)
+                  if [ -n "$prefix" ]; then
+                    candidate="$prefix/bin/pg_config"
+                    echo "brew prefix candidate ($formula): $candidate"
+                    if [ -x "$candidate" ]; then
+                      found="$candidate"
+                      break 2
+                    fi
                   fi
-                fi
+                done
               fi
             done
           fi
