@@ -1,0 +1,129 @@
+name: Auto Tag Version
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - "Cargo.toml"
+
+permissions:
+  contents: write
+  checks: read
+  actions: write
+
+jobs:
+  tag-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Read crate version
+        id: version
+        run: |
+          version=$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' Cargo.toml | head -n1)
+          if [ -z "$version" ]; then
+            echo "Could not determine version from Cargo.toml"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for CI and Security checks to pass
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          required_workflows=("ci.yml" "security.yml" "tests.yml")
+          deadline=$((SECONDS + 3600))
+
+          while true; do
+            all_ready=true
+
+            for workflow_file in "${required_workflows[@]}"; do
+              run_json=$(gh run list \
+                --repo "$REPO" \
+                --workflow "$workflow_file" \
+                --commit "$SHA" \
+                --json status,conclusion \
+                --limit 1)
+              status=$(echo "$run_json" | jq -r '.[0].status // "missing"')
+              conclusion=$(echo "$run_json" | jq -r '.[0].conclusion // "missing"')
+
+              if [ "$status" = "missing" ]; then
+                echo "Workflow '$workflow_file' not created yet."
+                all_ready=false
+                continue
+              fi
+
+              if [ "$status" != "completed" ]; then
+                echo "Workflow '$workflow_file' status: $status"
+                all_ready=false
+                continue
+              fi
+
+              if [ "$conclusion" != "success" ]; then
+                echo "Workflow '$workflow_file' concluded with '$conclusion'. Refusing to tag/release."
+                exit 1
+              fi
+
+              echo "Workflow '$workflow_file' passed."
+            done
+
+            if [ "$all_ready" = true ]; then
+              break
+            fi
+
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "Timed out waiting for required checks."
+              exit 1
+            fi
+
+            sleep 15
+          done
+
+      - name: Create and push tag if missing
+        id: tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          tag="v$VERSION"
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            echo "Tag $tag already exists; skipping."
+            echo "tag_created=false" >> "$GITHUB_OUTPUT"
+            echo "tag_name=$tag" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" -m "Release $tag"
+          git push origin "$tag"
+          echo "tag_created=true" >> "$GITHUB_OUTPUT"
+          echo "tag_name=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release if missing
+        if: steps.tag.outputs.tag_created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ steps.tag.outputs.tag_name }}
+        run: |
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Release $TAG_NAME already exists; skipping."
+            exit 0
+          fi
+
+          gh release create "$TAG_NAME" \
+            --title "$TAG_NAME" \
+            --notes "Automated release for $TAG_NAME"
+
+      - name: Dispatch publish workflow for new tag
+        if: steps.tag.outputs.tag_created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ steps.tag.outputs.tag_name }}
+        run: |
+          gh workflow run publish.yml --ref "$TAG_NAME"
