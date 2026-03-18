@@ -13,6 +13,8 @@ jobs:
   test:
     name: Unit tests (Rust)
     runs-on: ubuntu-latest
+    env:
+      PGRX_HOME: ${{ github.workspace }}/.pgrx
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -36,9 +38,9 @@ jobs:
       - name: Generate test keys (RSA + Ed25519)
         run: |
           openssl version
-          # RSA keys for RS256 tests
-          openssl genrsa -out test_private.pem 2048
-          openssl rsa -in test_private.pem -pubout -out test_public.pem
+          # RSA keys for RS256 tests (PKCS#8 format for ring)
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out test_private.pem
+          openssl pkey -in test_private.pem -pubout -out test_public.pem
           # Ed25519 keys for EdDSA tests
           openssl genpkey -algorithm ed25519 -out test_ed25519_private.pem
           openssl pkey -in test_ed25519_private.pem -pubout -out test_ed25519_public.pem

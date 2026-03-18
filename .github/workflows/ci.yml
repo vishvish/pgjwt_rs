@@ -15,24 +15,14 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      PGRX_HOME: ${{ github.workspace }}/.pgrx
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Format check
-        run: cargo fmt --all -- --check
-
-      - name: Clippy
-        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
-
-      - name: Test
-        run: cargo test --locked --workspace --all-features
+      - name: Run tests in Docker
+        run: |
+          chmod +x ./docker-test.sh
+          ./docker-test.sh

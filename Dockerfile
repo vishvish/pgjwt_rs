@@ -2,6 +2,9 @@
 # Usage:
 #   docker build -t pgjwt_rs .
 #   docker run --rm -v "$PWD/out":/out pgjwt_rs
+#
+# To run tests only:
+#   docker build --target test -t pgjwt_rs-test .
 
 FROM ubuntu:24.04 AS builder
 
@@ -41,17 +44,23 @@ RUN cargo pgrx init --pg18 /usr/lib/postgresql/18/bin/pg_config
 WORKDIR /workspace
 COPY . .
 
-# Generate test key pairs and run unit tests
-# RUN openssl genrsa -out test_private.pem 2048 2>/dev/null && \
-#     openssl rsa -in test_private.pem -pubout -out test_public.pem 2>/dev/null && \
-#     openssl genpkey -algorithm Ed25519 -out test_ed25519_private.pem 2>/dev/null && \
-#     openssl pkey -in test_ed25519_private.pem -pubout -out test_ed25519_public.pem 2>/dev/null && \
-#     cargo test --lib
+# Generate test key pairs (PKCS#8 format for ring)
+RUN openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out test_private.pem 2>/dev/null && \
+    openssl pkey -in test_private.pem -pubout -out test_public.pem 2>/dev/null && \
+    openssl genpkey -algorithm ed25519 -out test_ed25519_private.pem 2>/dev/null && \
+    openssl pkey -in test_ed25519_private.pem -pubout -out test_ed25519_public.pem 2>/dev/null
 
-# Build the extension (produces pkg/ with the shared object)
+# Test stage — runs unit tests and exits
+FROM builder AS test
+RUN cargo fmt --all -- --check && \
+    cargo clippy --no-default-features --features pg18 -- -D warnings && \
+    cargo test --no-default-features --features pg18
+
+# Package stage — builds the extension artifacts
+FROM builder AS package
 RUN ./package.sh pg18
 
 # Final image just holds artifacts
 FROM busybox:1.37.0
-COPY --from=builder /workspace/pkg /pkg
+COPY --from=package /workspace/pkg /pkg
 

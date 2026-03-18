@@ -225,14 +225,25 @@ Built with Rust and compiled to native code, `pgjwt_rs` provides:
 
 ## Development
 
-### Running Tests
+### Running Tests (Docker — recommended)
 
-First, generate test key pairs:
+No local PostgreSQL installation needed:
 
 ```bash
-# Generate RS256 test keys
-openssl genrsa -out test_private.pem 2048
-openssl rsa -in test_private.pem -pubout -out test_public.pem
+./docker-test.sh          # fmt + clippy + unit tests
+./docker-test.sh build    # … then package the extension
+```
+
+### Running Tests (locally)
+
+Requires a local PostgreSQL installation and `cargo-pgrx` initialised.
+
+First, generate PKCS#8 test key pairs:
+
+```bash
+# Generate RS256 test keys (PKCS#8 for ring)
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out test_private.pem
+openssl pkey -in test_private.pem -pubout -out test_public.pem
 
 # Generate Ed25519 test keys
 openssl genpkey -algorithm ed25519 -out test_ed25519_private.pem

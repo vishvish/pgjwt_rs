@@ -14,7 +14,11 @@ allow = [
 confidence-threshold = 0.93
 
 [advisories]
-ignore = []
+ignore = [
+  # Transitive via pgrx 0.17.0 — cannot fix without upstream update
+  "RUSTSEC-2024-0436", # paste (unmaintained)
+  "RUSTSEC-2021-0127", # serde_cbor (unmaintained)
+]
 
 [bans]
 multiple-versions = "warn"
