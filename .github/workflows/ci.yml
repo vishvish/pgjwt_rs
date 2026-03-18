@@ -6,7 +6,7 @@ on:
   pull_request:
 
 concurrency:
-  group: pgjwt_rs-${{ github.ref }}
+  group: pgjwt_rs-ci-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:

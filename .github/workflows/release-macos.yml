@@ -162,6 +162,12 @@ jobs:
 
           if [ -z "$found" ]; then
             echo "pg_config not found in candidates: ${candidates[*]}"
+            echo "Searching common Homebrew prefixes for pg_config..."
+            found=$(find /opt/homebrew /usr/local -path '*/bin/pg_config' -type f -executable 2>/dev/null | head -n 1 || true)
+          fi
+
+          if [ -z "$found" ]; then
+            echo "pg_config still not found after fallback search"
             exit 1
           fi
 

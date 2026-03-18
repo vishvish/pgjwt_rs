@@ -29,9 +29,12 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Ensure PGRX_HOME exists
+        shell: pwsh
         run: |
-          mkdir -p "$PGRX_HOME"
-          echo "PGRX_HOME=$PGRX_HOME"
+          if (-not (Test-Path -Path $env:PGRX_HOME)) {
+            New-Item -ItemType Directory -Path $env:PGRX_HOME | Out-Null
+          }
+          Write-Host "PGRX_HOME=$env:PGRX_HOME"
 
       - name: Print build environment info
         env:
