@@ -11,6 +11,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
+    env:
+      PGRX_HOME: ${{ github.workspace }}/.pgrx
     strategy:
       matrix:
         include:
@@ -33,6 +35,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Ensure PGRX_HOME exists
+        run: |
+          mkdir -p "$PGRX_HOME"
+          echo "PGRX_HOME=$PGRX_HOME"
 
       - name: Print build environment info
         env:
