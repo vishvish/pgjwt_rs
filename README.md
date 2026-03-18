@@ -199,6 +199,13 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 - **Error Handling**: Safe error messages, no key material leaks
 - **Memory Safety**: Built with Rust's memory safety guarantees
 
+## Security posture
+
+- **No unsafe code**: The crate avoids `unsafe` blocks unless explicitly justified and reviewed.
+- **Secret handling**: JWT keys and tokens are never logged or exposed in error messages.
+- **CI gating**: GitHub Actions validate formatting, linting, tests, dependency advisories, and license policy.
+- **Supply-chain checks**: Run `cargo audit` and `cargo deny check advisories licenses bans sources` locally before merging.
+
 ### Validation behavior
 
 This extension focuses on cryptographic verification and intentionally defers claim validation to SQL so you can express policy close to data:

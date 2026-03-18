@@ -134,11 +134,15 @@ fn verify_jwt(token: &str, public_key: &str, algorithm: Algorithm) -> (JsonB, Js
             let alg = match h.alg {
                 Algorithm::RS256 => "RS256",
                 Algorithm::EdDSA => "EdDSA",
-                other => return (
-                    JsonB(serde_json::json!({ "alg": format!("{:?}", other), "typ": h.typ.unwrap_or_else(|| "JWT".to_string()) })),
-                    JsonB(serde_json::json!({"error": "Unsupported algorithm in header"})),
-                    false,
-                ),
+                other => {
+                    return (
+                        JsonB(
+                            serde_json::json!({ "alg": format!("{:?}", other), "typ": h.typ.unwrap_or_else(|| "JWT".to_string()) }),
+                        ),
+                        JsonB(serde_json::json!({"error": "Unsupported algorithm in header"})),
+                        false,
+                    )
+                }
             };
             let typ = h.typ.unwrap_or_else(|| "JWT".to_string());
             JsonB(serde_json::json!({ "alg": alg, "typ": typ }))
@@ -380,8 +384,20 @@ mod tests {
 
         assert!(!valid);
         assert!(
-            payload.0.get("error").unwrap().as_str().unwrap().contains("Unsupported")
-                || payload.0.get("error").unwrap().as_str().unwrap().contains("not implemented")
+            payload
+                .0
+                .get("error")
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .contains("Unsupported")
+                || payload
+                    .0
+                    .get("error")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .contains("not implemented")
         );
     }
 
