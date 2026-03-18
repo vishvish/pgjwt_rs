@@ -1,4 +1,4 @@
-name: Release
+name: Release (Windows)
 
 on:
   push:
@@ -7,58 +7,13 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-release:
+  build:
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
     strategy:
       matrix:
         include:
-          # Linux x86_64
-          - os: ubuntu-latest
-            platform: linux-x86_64
-            target: x86_64-unknown-linux-gnu
-            pg_install: |
-              sudo apt-get update
-              sudo apt-get install -y postgresql-16 postgresql-server-dev-16
-            pg_config_path: /usr/lib/postgresql/16/bin/pg_config
-            cross: false
-          # Linux arm64 (Raspberry Pi 64-bit)
-          - os: ubuntu-latest
-            platform: linux-arm64
-            target: aarch64-unknown-linux-gnu
-            pg_install: |
-              sudo apt-get update
-              sudo apt-get install -y qemu-user-static binfmt-support
-              sudo apt-get install -y postgresql-16 postgresql-server-dev-16
-            pg_config_path: /usr/lib/postgresql/16/bin/pg_config
-            cross: true
-          # Linux armv7 (Raspberry Pi 32-bit)
-          - os: ubuntu-latest
-            platform: linux-armv7
-            target: armv7-unknown-linux-gnueabihf
-            pg_install: |
-              sudo apt-get update
-              sudo apt-get install -y qemu-user-static binfmt-support
-              sudo apt-get install -y postgresql-16 postgresql-server-dev-16
-            pg_config_path: /usr/lib/postgresql/16/bin/pg_config
-            cross: true
-          # macOS arm64
-          - os: macos-latest
-            platform: macos-arm64
-            target: aarch64-apple-darwin
-            pg_install: |
-              brew install postgresql@16
-            pg_config_path: /opt/homebrew/opt/postgresql@16/bin/pg_config
-            cross: false
-          # macOS x86_64
-          - os: macos-latest
-            platform: macos-x86_64
-            target: x86_64-apple-darwin
-            pg_install: |
-              arch -x86_64 /usr/local/bin/brew install postgresql@16 || true
-            pg_config_path: /usr/local/opt/postgresql@16/bin/pg_config
-            cross: false
           # Windows x86_64
           - os: windows-latest
             platform: windows-x86_64
@@ -244,11 +199,11 @@ jobs:
           Write-Host "Chosen pg_config: $chosen"
           Write-Output "pg_config_path=$chosen" >> $env:GITHUB_OUTPUT
 
-      - name: Install cargo-pgrx (0.16.1) and init
+      - name: Install cargo-pgrx (0.17.0) and init
         env:
           PG_CONFIG_PATH: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
         run: |
-          cargo install --locked cargo-pgrx --version 0.16.1
+          cargo install --locked cargo-pgrx --version 0.17.0
           cargo pgrx init --pg16 "$PG_CONFIG_PATH"
 
       - name: Cache cargo build
@@ -335,11 +290,10 @@ jobs:
           TARBALL="pgjwt_rs-${VERSION}-pg16-${PLATFORM}.tar.gz"
           tar -czf "$TARBALL" -C pkg .
           echo "tarball=$TARBALL" >> $GITHUB_OUTPUT
+          echo "artifact_name=pgjwt_rs-${VERSION}-pg16-${PLATFORM}" >> $GITHUB_OUTPUT
 
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+      - name: Upload tarball artifact
+        uses: actions/upload-artifact@v3
         with:
-          files: ${{ steps.pack.outputs.tarball }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: ${{ steps.pack.outputs.artifact_name }}
+          path: ${{ steps.pack.outputs.tarball }}

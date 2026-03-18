@@ -255,7 +255,7 @@ cargo build --release --features pg18 --no-default-features
 
 ## License
 
-AGPL-3.0-only - see LICENSE file for details.
+MIT - see LICENSE file for details.
 
 ## Credits
 
