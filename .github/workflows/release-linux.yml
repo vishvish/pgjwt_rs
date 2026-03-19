@@ -268,7 +268,7 @@ jobs:
           PG_CONFIG: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
           PGX_PG_CONFIG_PATH: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
         run: |
-          cargo install --locked cross --version 0.4.0
+          cargo install --locked cross --version 0.2.5
           cross test --no-default-features --features pg16 --target $TARGET --verbose --env PGRX_HOME=$PGRX_HOME
 
 
@@ -294,7 +294,7 @@ jobs:
           PG_CONFIG: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
           PGX_PG_CONFIG_PATH: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
         run: |
-          cargo install --locked cross --version 0.4.0
+          cargo install --locked cross --version 0.2.5
           cross build --release --features pg16 --no-default-features --target $TARGET --env PGRX_HOME=$PGRX_HOME
 
 
