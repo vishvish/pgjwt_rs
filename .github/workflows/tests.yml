@@ -22,15 +22,15 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install PostgreSQL dev headers (pg16)
+      - name: Install PostgreSQL dev headers (pg18)
         run: |
           sudo apt-get update
-          sudo apt-get install -y postgresql-16 postgresql-server-dev-16
+          sudo apt-get install -y postgresql-18 postgresql-server-dev-18
 
-      - name: Install cargo-pgrx (0.16.1) and init
+      - name: Install cargo-pgrx (0.17.0) and init
         run: |
-          cargo install --locked cargo-pgrx --version 0.16.1
-          cargo pgrx init --pg16 /usr/lib/postgresql/16/bin/pg_config
+          cargo install --locked cargo-pgrx --version 0.17.0
+          cargo pgrx init --pg18 /usr/lib/postgresql/18/bin/pg_config
 
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
@@ -45,8 +45,8 @@ jobs:
           openssl genpkey -algorithm ed25519 -out test_ed25519_private.pem
           openssl pkey -in test_ed25519_private.pem -pubout -out test_ed25519_public.pem
 
-      - name: Run tests (pg16)
-        run: cargo test --no-default-features --features pg16 --verbose
+      - name: Run tests (pg18)
+        run: cargo test --no-default-features --features pg18 --verbose
 
   # Uncomment to add pgrx integration tests once a matching PostgreSQL version is available on the runner
   # pgrx:

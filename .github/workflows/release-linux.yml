@@ -1,4 +1,4 @@
-name: Release (Linux)
+name: Release
 
 on:
   push:
@@ -7,12 +7,10 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-and-release:
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
-    env:
-      PGRX_HOME: ${{ github.workspace }}/.pgrx
     strategy:
       matrix:
         include:
@@ -20,44 +18,123 @@ jobs:
           - os: ubuntu-latest
             platform: linux-x86_64
             target: x86_64-unknown-linux-gnu
+            pg_version: 16
             pg_install: |
               sudo apt-get update
               sudo apt-get install -y postgresql-16 postgresql-server-dev-16
             pg_config_path: /usr/lib/postgresql/16/bin/pg_config
             cross: false
+          # Linux x86_64 (Postgres 18)
+          - os: ubuntu-latest
+            platform: linux-x86_64
+            target: x86_64-unknown-linux-gnu
+            pg_version: 18
+            pg_install: |
+              sudo apt-get update
+              sudo apt-get install -y postgresql-18 postgresql-server-dev-18
+            pg_config_path: /usr/lib/postgresql/18/bin/pg_config
+            cross: false
           # Linux arm64 (Raspberry Pi 64-bit)
           - os: ubuntu-latest
             platform: linux-arm64
             target: aarch64-unknown-linux-gnu
+            pg_version: 16
             pg_install: |
               sudo apt-get update
               sudo apt-get install -y qemu-user-static binfmt-support
               sudo apt-get install -y postgresql-16 postgresql-server-dev-16
             pg_config_path: /usr/lib/postgresql/16/bin/pg_config
+            cross: true
+          # Linux arm64 (Postgres 18)
+          - os: ubuntu-latest
+            platform: linux-arm64
+            target: aarch64-unknown-linux-gnu
+            pg_version: 18
+            pg_install: |
+              sudo apt-get update
+              sudo apt-get install -y qemu-user-static binfmt-support
+              sudo apt-get install -y postgresql-18 postgresql-server-dev-18
+            pg_config_path: /usr/lib/postgresql/18/bin/pg_config
             cross: true
           # Linux armv7 (Raspberry Pi 32-bit)
           - os: ubuntu-latest
             platform: linux-armv7
             target: armv7-unknown-linux-gnueabihf
+            pg_version: 16
             pg_install: |
               sudo apt-get update
               sudo apt-get install -y qemu-user-static binfmt-support
               sudo apt-get install -y postgresql-16 postgresql-server-dev-16
             pg_config_path: /usr/lib/postgresql/16/bin/pg_config
             cross: true
+          # Linux armv7 (Postgres 18)
+          - os: ubuntu-latest
+            platform: linux-armv7
+            target: armv7-unknown-linux-gnueabihf
+            pg_version: 18
+            pg_install: |
+              sudo apt-get update
+              sudo apt-get install -y qemu-user-static binfmt-support
+              sudo apt-get install -y postgresql-18 postgresql-server-dev-18
+            pg_config_path: /usr/lib/postgresql/18/bin/pg_config
+            cross: true
+          # macOS arm64
+          - os: macos-latest
+            platform: macos-arm64
+            target: aarch64-apple-darwin
+            pg_version: 16
+            pg_install: |
+              brew install postgresql@16
+            pg_config_path: /opt/homebrew/opt/postgresql@16/bin/pg_config
+            cross: false
+          # macOS arm64 (Postgres 18)
+          - os: macos-latest
+            platform: macos-arm64
+            target: aarch64-apple-darwin
+            pg_version: 18
+            pg_install: |
+              brew install postgresql@18
+            pg_config_path: /opt/homebrew/opt/postgresql@18/bin/pg_config
+            cross: false
+          # macOS x86_64
+          - os: macos-latest
+            platform: macos-x86_64
+            target: x86_64-apple-darwin
+            pg_version: 16
+            pg_install: |
+              arch -x86_64 /usr/local/bin/brew install postgresql@16 || true
+            pg_config_path: /usr/local/opt/postgresql@16/bin/pg_config
+            cross: false
+          # macOS x86_64 (Postgres 18)
+          - os: macos-latest
+            platform: macos-x86_64
+            target: x86_64-apple-darwin
+            pg_version: 18
+            pg_install: |
+              arch -x86_64 /usr/local/bin/brew install postgresql@18 || true
+            pg_config_path: /usr/local/opt/postgresql@18/bin/pg_config
+            cross: false
+          # Windows x86_64
+          - os: windows-latest
+            platform: windows-x86_64
+            target: x86_64-pc-windows-msvc
+            pg_version: 16
+            pg_install: |
+              choco install postgresql --version=16.0
+            pg_config_path: C:/Program Files/PostgreSQL/16/bin/pg_config.exe
+            cross: false
+          # Windows x86_64 (Postgres 18)
+          - os: windows-latest
+            platform: windows-x86_64
+            target: x86_64-pc-windows-msvc
+            pg_version: 18
+            pg_install: |
+              choco install postgresql --version=18.0
+            pg_config_path: C:/Program Files/PostgreSQL/18/bin/pg_config.exe
+            cross: false
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set PGRX_HOME
-        run: |
-          echo "PGRX_HOME=${GITHUB_WORKSPACE}/.pgrx" >> $GITHUB_ENV
-          mkdir -p "${GITHUB_WORKSPACE}/.pgrx"
-
-      - name: Ensure PGRX_HOME exists
-        run: |
-          mkdir -p "$PGRX_HOME"
-          echo "PGRX_HOME=$PGRX_HOME"
+        uses: actions/checkout@v4
 
       - name: Print build environment info
         env:
@@ -78,12 +155,14 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install PostgreSQL dev headers (pg16)
+      - name: Install PostgreSQL dev headers
         env:
           PLATFORM: ${{ matrix.platform }}
           CROSS: ${{ matrix.cross }}
+          PG_VERSION: ${{ matrix.pg_version }}
         run: |
           echo "Runner OS: $RUNNER_OS"
+          echo "Postgres version: $PG_VERSION"
           if [[ "$RUNNER_OS" == "macOS" ]]; then
             echo "macOS detected. Platform: $PLATFORM"
             BREW=""
@@ -96,25 +175,25 @@ jobs:
               exit 1
             fi
             if [[ "$PLATFORM" == "macos-x86_64" ]]; then
-              echo "Installing postgresql@16 via x86_64 Homebrew"
-              arch -x86_64 "$BREW" install postgresql@16 || true
+              echo "Installing postgresql@$PG_VERSION via x86_64 Homebrew"
+              arch -x86_64 "$BREW" install postgresql@$PG_VERSION || true
             else
-              echo "Installing postgresql@16 via native Homebrew"
-              "$BREW" install postgresql@16 || true
+              echo "Installing postgresql@$PG_VERSION via native Homebrew"
+              "$BREW" install postgresql@$PG_VERSION || true
             fi
-            echo "brew --prefix postgresql@16: $($BREW --prefix postgresql@16 2>/dev/null || true)"
-            echo "brew list postgresql@16 (if installed):"
-            "$BREW" list postgresql@16 || true
+            echo "brew --prefix postgresql@$PG_VERSION: $($BREW --prefix postgresql@$PG_VERSION 2>/dev/null || true)"
+            echo "brew list postgresql@$PG_VERSION (if installed):"
+            "$BREW" list postgresql@$PG_VERSION || true
           elif [[ "$RUNNER_OS" == "Linux" ]]; then
             echo "Linux detected. Installing via apt"
             sudo apt-get update
             if [[ "$CROSS" == 'true' ]]; then
               sudo apt-get install -y qemu-user-static binfmt-support || true
             fi
-            sudo apt-get install -y postgresql-16 postgresql-server-dev-16 || true
+            sudo apt-get install -y postgresql-$PG_VERSION postgresql-server-dev-$PG_VERSION || true
           elif [[ "$RUNNER_OS" == "Windows" ]]; then
             echo "Windows detected. Installing via Chocolatey"
-            pwsh -Command "choco install postgresql --version=16.0 -y" || true
+            pwsh -Command "choco install postgresql --version=$PG_VERSION.0 -y" || true
           else
             echo "Unsupported runner OS: $RUNNER_OS"
             exit 1
@@ -232,12 +311,13 @@ jobs:
           Write-Host "Chosen pg_config: $chosen"
           Write-Output "pg_config_path=$chosen" >> $env:GITHUB_OUTPUT
 
-      - name: Install cargo-pgrx (0.17.0) and init
+      - name: Install cargo-pgrx and init
         env:
+          PG_VERSION: ${{ matrix.pg_version }}
           PG_CONFIG_PATH: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
         run: |
           cargo install --locked cargo-pgrx --version 0.17.0
-          cargo pgrx init --pg16 "$PG_CONFIG_PATH"
+          cargo pgrx init --pg${PG_VERSION} "$PG_CONFIG_PATH"
 
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
@@ -253,29 +333,32 @@ jobs:
           openssl pkey -in test_ed25519_private.pem -pubout -out test_ed25519_public.pem
 
 
-      - name: Run unit tests (pg16)
+      - name: Run unit tests
         if: ${{ !matrix.cross }}
         env:
           TARGET: ${{ matrix.target }}
+          PG_VERSION: ${{ matrix.pg_version }}
           PG_CONFIG: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
           PGX_PG_CONFIG_PATH: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
-        run: cargo test --no-default-features --features pg16 --verbose --target $TARGET
+        run: cargo test --no-default-features --features pg${PG_VERSION} --verbose --target $TARGET
 
-      - name: Run unit tests (pg16, cross)
+      - name: Run unit tests (cross)
         if: ${{ matrix.cross }}
         env:
           TARGET: ${{ matrix.target }}
+          PG_VERSION: ${{ matrix.pg_version }}
           PG_CONFIG: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
           PGX_PG_CONFIG_PATH: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
         run: |
-          cargo install --locked cross --version 0.2.5
-          cross test --no-default-features --features pg16 --target $TARGET --verbose --env PGRX_HOME=$PGRX_HOME
+          cargo install cross --git https://github.com/cross-rs/cross
+          cross test --no-default-features --features pg${PG_VERSION} --target $TARGET --verbose
 
 
-      - name: Build release library (pg16)
+      - name: Build release library
         if: ${{ !matrix.cross }}
         env:
           TARGET: ${{ matrix.target }}
+          PG_VERSION: ${{ matrix.pg_version }}
           PG_CONFIG_PATH: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
           PG_CONFIG: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
           PGX_PG_CONFIG_PATH: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
@@ -285,21 +368,23 @@ jobs:
             PG_LIB_DIR=$("$PG_CONFIG_PATH" --libdir)
             export DYLD_FALLBACK_LIBRARY_PATH="${PG_LIB_DIR}:${DYLD_FALLBACK_LIBRARY_PATH}"
           fi
-          cargo build --release --features pg16 --no-default-features --target $TARGET
+          cargo build --release --features pg${PG_VERSION} --no-default-features --target $TARGET
 
-      - name: Build release library (pg16, cross)
+      - name: Build release library (cross)
         if: ${{ matrix.cross }}
         env:
           TARGET: ${{ matrix.target }}
+          PG_VERSION: ${{ matrix.pg_version }}
           PG_CONFIG: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
           PGX_PG_CONFIG_PATH: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
         run: |
-          cargo install --locked cross --version 0.2.5
-          cross build --release --features pg16 --no-default-features --target $TARGET --env PGRX_HOME=$PGRX_HOME
+          cargo install cross --git https://github.com/cross-rs/cross
+          cross build --release --features pg${PG_VERSION} --no-default-features --target $TARGET
 
 
-      - name: Package extension files (pg16)
+      - name: Package extension files
         env:
+          PG_VERSION: ${{ matrix.pg_version }}
           PG_CONFIG_PATH: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
           PG_CONFIG: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
           PGX_PG_CONFIG_PATH: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
@@ -310,7 +395,7 @@ jobs:
             export DYLD_FALLBACK_LIBRARY_PATH="${PG_LIB_DIR}:${DYLD_FALLBACK_LIBRARY_PATH}"
           fi
           chmod +x package.sh
-          PG_FEATURE=pg16 ./package.sh
+          PG_FEATURE=pg${PG_VERSION} ./package.sh
 
 
       - name: Create tarball
@@ -318,42 +403,17 @@ jobs:
         shell: bash
         env:
           PLATFORM: ${{ matrix.platform }}
+          PG_VERSION: ${{ matrix.pg_version }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          TARBALL="pgjwt_rs-${VERSION}-pg16-${PLATFORM}.tar.gz"
+          TARBALL="pgjwt_rs-${VERSION}-pg${PG_VERSION}-${PLATFORM}.tar.gz"
           tar -czf "$TARBALL" -C pkg .
           echo "tarball=$TARBALL" >> $GITHUB_OUTPUT
-          echo "artifact_name=pgjwt_rs-${VERSION}-pg16-${PLATFORM}" >> $GITHUB_OUTPUT
-
-      - name: Upload tarball artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ steps.pack.outputs.artifact_name }}
-          path: ${{ steps.pack.outputs.tarball }}
-
-  publish:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v8
-        with:
-          path: artifacts
-
-      - name: List downloaded artifacts
-        run: |
-          ls -la artifacts
-          find artifacts -maxdepth 2 -type f -name "*.tar.gz"
 
       - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: "artifacts/**/*.tar.gz"
+          files: ${{ steps.pack.outputs.tarball }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
