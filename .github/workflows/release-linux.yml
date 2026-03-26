@@ -187,6 +187,12 @@ jobs:
           elif [[ "$RUNNER_OS" == "Linux" ]]; then
             echo "Linux detected. Installing via apt"
             sudo apt-get update
+            sudo apt-get install -y --no-install-recommends ca-certificates curl gnupg lsb-release
+            curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+              | sudo gpg --dearmor -o /usr/share/keyrings/postgresql-archive-keyring.gpg
+            echo "deb [signed-by=/usr/share/keyrings/postgresql-archive-keyring.gpg] http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" \
+              | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+            sudo apt-get update
             if [[ "$CROSS" == 'true' ]]; then
               sudo apt-get install -y qemu-user-static binfmt-support || true
             fi
@@ -205,15 +211,19 @@ jobs:
         if: runner.os != 'Windows'
         env:
           PG_CONFIG_PATH: ${{ matrix.pg_config_path }}
+          PG_VERSION: ${{ matrix.pg_version }}
         run: |
           echo "Initial PG_CONFIG_PATH=$PG_CONFIG_PATH"
+          echo "Postgres version: $PG_VERSION"
           echo "uname -m: $(uname -m)"
           echo "which brew: $(command -v brew || true)"
           candidates=(
             "$PG_CONFIG_PATH"
-            "$(command -v pg_config 2>/dev/null)"
-            "/opt/homebrew/opt/postgresql@16/bin/pg_config"
-            "/usr/local/opt/postgresql@16/bin/pg_config"
+            "$(command -v pg_config 2>/dev/null || true)"
+            "/opt/homebrew/opt/postgresql@${PG_VERSION}/bin/pg_config"
+            "/usr/local/opt/postgresql@${PG_VERSION}/bin/pg_config"
+            "/opt/homebrew/opt/postgresql/bin/pg_config"
+            "/usr/local/opt/postgresql/bin/pg_config"
             "/usr/local/bin/pg_config"
             "/usr/bin/pg_config"
           )
@@ -225,26 +235,34 @@ jobs:
             fi
           done
 
-          # If not found, try Homebrew --prefix lookups for postgresql@16
+          # If not found, try Homebrew --prefix lookups for postgresql@$PG_VERSION and postgresql
           if [ -z "$found" ]; then
-            for brew_cmd in "/opt/homebrew/bin/brew" "/usr/local/bin/brew" "$(command -v brew 2>/dev/null)"; do
+            for brew_cmd in "/opt/homebrew/bin/brew" "/usr/local/bin/brew" "$(command -v brew 2>/dev/null || true)"; do
               if [ -x "$brew_cmd" ]; then
                 echo "Trying brew at: $brew_cmd"
-                prefix=$($brew_cmd --prefix postgresql@16 2>/dev/null || true)
-                if [ -n "$prefix" ]; then
-                  candidate="$prefix/bin/pg_config"
-                  echo "brew prefix candidate: $candidate"
-                  if [ -x "$candidate" ]; then
-                    found="$candidate"
-                    break
+                for formula in "postgresql@$PG_VERSION" "postgresql"; do
+                  prefix=$($brew_cmd --prefix "$formula" 2>/dev/null || true)
+                  if [ -n "$prefix" ]; then
+                    candidate="$prefix/bin/pg_config"
+                    echo "brew prefix candidate ($formula): $candidate"
+                    if [ -x "$candidate" ]; then
+                      found="$candidate"
+                      break 2
+                    fi
                   fi
-                fi
+                done
               fi
             done
           fi
 
           if [ -z "$found" ]; then
             echo "pg_config not found in candidates: ${candidates[*]}"
+            echo "Searching common Homebrew prefixes for pg_config..."
+            found=$(find /opt/homebrew /usr/local -path '*/bin/pg_config' -type f -executable 2>/dev/null | head -n 1 || true)
+          fi
+
+          if [ -z "$found" ]; then
+            echo "pg_config still not found after fallback search"
             exit 1
           fi
 
@@ -334,7 +352,7 @@ jobs:
 
 
       - name: Run unit tests
-        if: ${{ !matrix.cross }}
+        if: ${{ github.event_name == 'workflow_dispatch' && !matrix.cross }}
         env:
           TARGET: ${{ matrix.target }}
           PG_VERSION: ${{ matrix.pg_version }}
@@ -343,7 +361,7 @@ jobs:
         run: cargo test --no-default-features --features pg${PG_VERSION} --verbose --target $TARGET
 
       - name: Run unit tests (cross)
-        if: ${{ matrix.cross }}
+        if: ${{ github.event_name == 'workflow_dispatch' && matrix.cross }}
         env:
           TARGET: ${{ matrix.target }}
           PG_VERSION: ${{ matrix.pg_version }}

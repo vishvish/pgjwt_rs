@@ -109,7 +109,7 @@ jobs:
           echo "which brew: $(command -v brew || true)"
           candidates=(
             "$PG_CONFIG_PATH"
-            "$(command -v pg_config 2>/dev/null)"
+            "$(command -v pg_config 2>/dev/null || true)"
             "/opt/homebrew/opt/postgresql@16/bin/pg_config"
             "/usr/local/opt/postgresql@16/bin/pg_config"
             "/usr/local/bin/pg_config"
@@ -125,7 +125,7 @@ jobs:
 
           # If not found, try Homebrew --prefix lookups for postgresql@16
           if [ -z "$found" ]; then
-            for brew_cmd in "/opt/homebrew/bin/brew" "/usr/local/bin/brew" "$(command -v brew 2>/dev/null)"; do
+            for brew_cmd in "/opt/homebrew/bin/brew" "/usr/local/bin/brew" "$(command -v brew 2>/dev/null || true)"; do
               if [ -x "$brew_cmd" ]; then
                 echo "Trying brew at: $brew_cmd"
                 prefix=$($brew_cmd --prefix postgresql@16 2>/dev/null || true)
@@ -231,7 +231,7 @@ jobs:
 
 
       - name: Run unit tests (pg16)
-        if: ${{ !matrix.cross }}
+        if: ${{ github.event_name == 'workflow_dispatch' && !matrix.cross }}
         env:
           TARGET: ${{ matrix.target }}
           PG_CONFIG: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
@@ -239,7 +239,7 @@ jobs:
         run: cargo test --no-default-features --features pg16 --verbose --target $TARGET
 
       - name: Run unit tests (pg16, cross)
-        if: ${{ matrix.cross }}
+        if: ${{ github.event_name == 'workflow_dispatch' && matrix.cross }}
         env:
           TARGET: ${{ matrix.target }}
           PG_CONFIG: ${{ (steps.set_pg_unix.outputs.pg_config_path != '' && steps.set_pg_unix.outputs.pg_config_path) || (steps.set_pg_win.outputs.pg_config_path != '' && steps.set_pg_win.outputs.pg_config_path) || matrix.pg_config_path }}
