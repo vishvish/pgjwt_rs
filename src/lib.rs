@@ -235,7 +235,7 @@ fn verify_jwt(token: &str, public_key: &str, expected_alg: JwtAlg) -> (JsonB, Js
     };
 
     // We expect a SubjectPublicKeyInfo (SPKI) public key.
-    if pem.tag != "PUBLIC KEY" {
+    if pem.tag() != "PUBLIC KEY" {
         return (
             header_json,
             JsonB(serde_json::json!({"error": "Unsupported public key format"})),
@@ -245,7 +245,7 @@ fn verify_jwt(token: &str, public_key: &str, expected_alg: JwtAlg) -> (JsonB, Js
 
     // ring expects the raw public key from inside the SPKI BIT STRING, not the
     // full SPKI DER.  Extract it with a minimal ASN.1 walk.
-    let raw_key = match extract_spki_public_key(&pem.contents) {
+    let raw_key = match extract_spki_public_key(&pem.contents()) {
         Some(k) => k,
         None => {
             return (
@@ -373,7 +373,7 @@ mod tests {
     /// Build a JWT string: base64url(header) . base64url(payload) . base64url(signature)
     fn sign_rs256(claims_json: &str, private_key_pem: &str) -> String {
         let pem_obj = pem::parse(private_key_pem).expect("valid PEM private key");
-        let key_pair = ring_sig::RsaKeyPair::from_pkcs8(&pem_obj.contents)
+        let key_pair = ring_sig::RsaKeyPair::from_pkcs8(&pem_obj.contents())
             .expect("valid PKCS8 RSA private key");
         let rng = SystemRandom::new();
 
@@ -397,7 +397,7 @@ mod tests {
 
     fn sign_eddsa(claims_json: &str, private_key_pem: &str) -> String {
         let pem_obj = pem::parse(private_key_pem).expect("valid PEM private key");
-        let key_pair = ring_sig::Ed25519KeyPair::from_pkcs8_maybe_unchecked(&pem_obj.contents)
+        let key_pair = ring_sig::Ed25519KeyPair::from_pkcs8_maybe_unchecked(&pem_obj.contents())
             .expect("valid PKCS8 Ed25519 private key");
 
         let header_b64 = BASE64_URL_SAFE_NO_PAD.encode(r#"{"alg":"EdDSA","typ":"JWT"}"#.as_bytes());

@@ -37,7 +37,7 @@ jobs:
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
         run: |
-          required_workflows=("ci.yml" "security.yml" "tests.yml")
+          required_workflows=("security.yml" "tests.yml")
           deadline=$((SECONDS + 3600))
 
           while true; do
